@@ -1,0 +1,49 @@
+#This line installs the AD cmdlet, need to verify it asks before installing
+Install-WindowsFeature -Name RSAT-AD-PowerShell -IncludeAllSubFeature -Confirm
+Import-Module -Name ActiveDirectory
+
+#Get available SMB Shares and prompts user to input share directory to test permissions
+$smb_share_path=(Get-SMBShare).Path | Out-Gridview -Title "Select the directory the Managed Volume will be mounted to " -OutputMode Single
+Write-Host "The target Managed Volume mount point is:" -ForegroundColor green
+Write-Host $smb_share_path "`n"
+
+#Get username of current loggon user
+$current_user = (Get-ChildItem Env:\USERNAME).Value
+Write-Host "You are currently logged in with the user:" -ForegroundColor green
+Write-Host $current_user "`n"
+
+#Get the SID of the local user for verifying SID <-> UID mapping
+try {
+Write-Host "Here the SID of the local user:" -ForegroundColor green
+$user_sid = (Get-ADuser -Identity $current_user).SID.Value
+Write-Host $current_user
+Write-Host $user_sid "`n"}  
+catch {} 
+
+#Get the IPs of the local host to verify they are listed in the validips of the MV config
+$valid_ips = (Get-NetIPAddress -AddressFamily IPv4).IPAddress
+Write-Host "Here are the configured IPs of the local host:" -ForegroundColor green
+Write-Host $valid_ips "`n"
+
+#Get the logon user for RBS
+$rubrik_user = (Get-WmiObject Win32_Service -Filter "Name='Rubrik Backup Service'").Startname
+Write-Host "RBS is currently logged in using:" -ForegroundColor green
+Write-Host $rubrik_user "`n"
+
+#Get status of RBS or any exit codes
+Write-Host "RBS status:" -ForegroundColor green -NonewLine 
+Get-WMIObject win32_service | Where-Object -FilterScript {$_.name -EQ 'Rubrik Backup Service'}
+
+#Get user permissions on the smb share
+Write-Host "Here are the permissions for the smb share:" -ForegroundColor green 
+(Get-ACL $smb_share_path).Access
+
+#Truncates $rubrik_user output for AD verification
+$ad_user = $rubrik_user.Substring($rubrik_user.IndexOf('\')+1)
+
+#Get AD information about the $rubrik_user
+Get-ADUser -Identity $current_user
+
+#Get security groups the $rubrik_user is a part of
+Write-Host "The SMB domain user is a part of the following security groups:" -ForegroundColor green 
+(Get-ADUser $current_user -Properties MemberOf).memberof | Get-ADGroup | Select-Object name
